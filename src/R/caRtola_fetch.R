@@ -1,7 +1,7 @@
 # What? ----------------------------------------------
 # Retrieve data from Cartola and store as a csv file
 # Every round, you need to gather and store data into
-# data/2018 folder
+# data/2019 folder
 # ----------------------------------------------------
 
 # Objetivo--------------------------------------------
@@ -20,6 +20,10 @@ library(httr)
 library(rjson)
 library(jsonlite)
 library(plyr)
+
+# Set working directory
+# Setar diretório de trabalho. No Windows é um pouco diferente.
+setwd("~/caRtola/")
 
 ###################
 # Fetch Player Data 

@@ -2,46 +2,77 @@
 # INFO ---------------
 ######################
 
-# This script scrapes team data from the CBF website and writes it down to file tabela-times.csv
-# XML 
+# This script scrapes team data from the cartola api and writes it down to file tabela-times.csv
+# Author: Henrique Gomide
 
-library(XML)
-library(httr)
+setwd("~/caRtola")
 
-page <- GET(
-  "https://www.cbf.com.br/futebol-brasileiro/competicoes/campeonato-brasileiro-serie-a/2018"
-)
+library(jsonlite)
+library(lubridate)
+library(tidyverse)
 
-theurl <- htmlTreeParse(page, useInternal = TRUE)
-tables <- readHTMLTable(theurl)
- n.rows <- unlist(lapply(tables, function(t) dim(t)[2]))
-info <- tables[[which.max(n.rows)]]
-info <- info[,1:18]
-colnames(info) <- c("Pos","None","Clube", "P","J","V","E","D", "GP",	"GC",	"SG",	"VM",	"VV",	"DM",	"DV",	"CA",	"CV",	"%")
-info[,4:18] <- sapply(info[,4:18], function(x) as.numeric(levels(x))[x])
-info <- info[,-2]
-info <- info[1:20,]
-rm(n.rows,tables, theurl)
+fetchRoundData <- function(url) {
+  # Returns data frame with dates and rounds for Brasileirao 2019
+  
+  result <- jsonlite::fromJSON(url)
+  result$inicio <- date(ymd_hms(result$inicio))
+  result$fim <- date(ymd_hms(result$fim))
+  result <- gather(result, `inicio`, `fim`, key = "marco", value = "data")
+  result <- arrange(result, data)
+  
+  temp.df <- data.frame(data = seq(as.Date(min(result$data)), as.Date(max(result$data)), by = "days" ))
+  result <- left_join(temp.df, result, by = "data")
+  result <- 
+    result %>%
+    mutate(index = lead(rodada_id) - lag(rodada_id))
+  
+  result$filter <- ifelse(!is.na(result$rodada_id) | result$index == 0, TRUE, FALSE)
+  result <- 
+    result %>%
+    filter(filter == TRUE) %>%
+    select(data, rodada_id) %>%
+    fill(data, rodada_id, .direction = "down")
+  
+  return(result)
+  
+}
 
-# Write data as csv file
-write.csv(info, "data/2018/2018_tabelas.csv", row.names=FALSE)
+fetchMatchDetail <- function(round) {
+  # Returns a data frame with all matches results from the cartola api until a given round.
+  # round - Brasileirao round. E.g., If you insert n=3, data will be collected until the round 3.
+  
+  round_dates <- fetchRoundData("https://api.cartolafc.globo.com/rodadas")
+  
+  url_vec <- c()
+  for (i in 1:round) {
+    url_vec[i] <- paste0("https://api.cartolafc.globo.com/partidas/", i)
+  }
+  
+  matches_list <- list()
+  
+  for (j in 1:length(url_vec)) {
+    
+    matches <- jsonlite::fromJSON(url_vec[j])
+    matches <- matches$partidas
+    matches <- dplyr::select(matches, 
+                             partida_data, clube_casa_id, clube_visitante_id,
+                             placar_oficial_mandante, placar_oficial_visitante)
+    matches$partida_data <- date(ymd_hms(matches$partida_data))
+    
+    matches_list[[j]] <- matches
+    
+  }
+  
+  matches <- do.call("rbind", matches_list)
+  matches <- left_join(matches, round_dates, by = c("partida_data" = "data"))
+  
+  # Standardize names to previous years
+  names(matches) <- c("date", "home_team", "away_team", 
+                      "home_score", "away_score", "round")
+  
+  return(matches)
+  
+}
 
-
-# ---------------
-# Retrieve all matches results from CBF website
-# Recuperar dados das partidas para prever vitórias entre os times do campeonato brasileiro
-# ---------------
-
-page <- GET(
-  "https://cbf.com.br/competicoes/brasileiro-serie-a/tabela/2018"
-)
-
-theurl <- htmlTreeParse(page, useInternal = TRUE)
-tables <- readHTMLTable(theurl)
-n.rows <- unlist(lapply(tables, function(t) dim(t)[1]))
-info <- tables[[which.max(n.rows)]]
-info <- info[,1:8]
-colnames(info) <- c("game","round","date", "home_team","score","away_team","arena","X")
-# Write file as csv - Gravar resultados das partidas
-write.csv(info, "data/2018/2018_partidas.csv")
-rm(n.rows,tables, theurl, info)
+# Write csv
+write.csv(fetchMatchDetail(round = 4), "data/2019/2019_partidas.csv", row.names = FALSE)
